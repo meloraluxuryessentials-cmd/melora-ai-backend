@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: melora-ai-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: HF_TOKEN
+        value: hf_uvnOwFhJbupJdQxgoSroPDtspntIjsa8GH
+      - key: NODE_ENV
+        value: production
