@@ -56,7 +56,7 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
     const negativePrompt = 'ugly, blurry, low quality, distorted, cartoon, painting, sketch, drawing, text, watermark, empty wall, plain wall, no panels, wallpaper';
 
     /* Stap 1: Start Replicate prediction */
-    // Gebruik het stabiele versioned endpoint voor img2img
+    // lucataco/sdxl-inpainting of stability-ai/sdxl voor img2img
     const startResponse = await fetch('https://api.replicate.com/v1/predictions', {
       method: 'POST',
       headers: {
@@ -64,16 +64,16 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        // stability-ai/stable-diffusion-img2img — officieel Replicate model
-        version: 'ddd4eb440853a42c055203289a3da0c8886b0b9492fe619b1c1dbd34be160ce7',
+        // stability-ai/sdxl — sterk img2img model
+        version: '7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc',
         input: {
           image: base64Image,
           prompt: prompt,
           negative_prompt: negativePrompt,
           prompt_strength: 0.75,
-          num_inference_steps: 30,
+          num_inference_steps: 50,
           guidance_scale: 7.5,
-          scheduler: 'DPMSolverMultistep'
+          scheduler: 'K_EULER'
         }
       })
     });
