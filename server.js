@@ -52,8 +52,8 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
     const base64Image = `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
 
     const colorDescription = getColorDescription(productName);
-    const prompt = `luxury interior with ${colorDescription} acoustic wood wall panels on the wall, high-end interior design, photorealistic, professional photography, warm lighting`;
-    const negativePrompt = 'ugly, blurry, low quality, distorted, cartoon, painting';
+    const prompt = `interior design photo, large decorative ${colorDescription} slatted acoustic wood wall panels covering the entire back wall from floor to ceiling, the wall panels are the dominant feature of the room, vertical wooden slats in a grid pattern mounted on the wall, high-end luxury interior, professional interior photography, photorealistic, 8k, sharp details, warm ambient lighting`;
+    const negativePrompt = 'ugly, blurry, low quality, distorted, cartoon, painting, sketch, drawing, text, watermark, empty wall, plain wall, no panels, wallpaper';
 
     /* Stap 1: Start Replicate prediction */
     // Gebruik het stabiele versioned endpoint voor img2img
@@ -70,7 +70,7 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
           image: base64Image,
           prompt: prompt,
           negative_prompt: negativePrompt,
-          prompt_strength: 0.6,
+          prompt_strength: 0.75,
           num_inference_steps: 30,
           guidance_scale: 7.5,
           scheduler: 'DPMSolverMultistep'
