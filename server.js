@@ -1,9 +1,6 @@
 /*
   MELORA AI BACKEND SERVER
-  Gratis deployment op Render.com
-
-  Gebruikt Hugging Face Inference API (gratis tier)
-  met Pollinations AI als fallback.
+  Gebruikt Replicate.com voor echte img2img transformatie
 */
 
 const express = require('express');
@@ -11,12 +8,11 @@ const multer  = require('multer');
 const cors    = require('cors');
 const fetch   = require('node-fetch');
 const sharp   = require('sharp');
-const FormData = require('form-data');
 
 const app  = express();
 const port = process.env.PORT || 3000;
 
-const HF_TOKEN = process.env.HF_TOKEN || '';
+const REPLICATE_TOKEN = process.env.REPLICATE_TOKEN || '';
 
 app.use(cors({
   origin: [
@@ -32,7 +28,7 @@ const upload = multer({
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'Melora AI Backend' });
+  res.json({ status: 'ok', service: 'Melora AI Backend v2 (Replicate)' });
 });
 
 app.post('/api/visualize', upload.single('room'), async (req, res) => {
@@ -41,39 +37,77 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
       return res.status(400).json({ error: 'Geen foto ontvangen.' });
     }
 
-    const points      = JSON.parse(req.body.points || '[]');
-    const productName = req.body.productName || 'wood acoustic wall panel';
-
-    const imageBuffer = await sharp(req.file.buffer)
-      .resize({ width: 1024, withoutEnlargement: true })
-      .jpeg({ quality: 90 })
-      .toBuffer();
-
-    const base64Image = imageBuffer.toString('base64');
-
-    const colorDescription = getColorDescription(productName);
-    const prompt = `A luxury interior room with ${colorDescription} acoustic wood wall panels installed on the wall, photorealistic, high-end interior design, professional photography, warm lighting, 8k quality, architectural visualization`;
-
-    let resultBuffer;
-
-    try {
-      const hfResponse = await callHuggingFace(prompt, base64Image);
-      const imageData = await hfResponse.arrayBuffer();
-      resultBuffer = Buffer.from(imageData);
-    } catch (hfErr) {
-      console.log('HF mislukt, probeer Pollinations:', hfErr.message);
-      const encodedPrompt = encodeURIComponent(prompt);
-      const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=768&nologo=true`;
-      
-      const pollResponse = await fetch(pollinationsUrl, { timeout: 120000 });
-      if (!pollResponse.ok) {
-        throw new Error('AI-generatie mislukt via alle beschikbare services.');
-      }
-      const imageData = await pollResponse.arrayBuffer();
-      resultBuffer = Buffer.from(imageData);
+    if (!REPLICATE_TOKEN) {
+      return res.status(500).json({ error: 'REPLICATE_TOKEN niet ingesteld op de server.' });
     }
 
-    res.set('Content-Type', 'image/jpeg');
+    const productName = req.body.productName || 'wood acoustic wall panel';
+
+    /* Afbeelding verkleinen voor snelle verwerking */
+    const imageBuffer = await sharp(req.file.buffer)
+      .resize({ width: 768, withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    const base64Image = `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
+
+    const colorDescription = getColorDescription(productName);
+    const prompt = `luxury interior with ${colorDescription} acoustic wood wall panels on the wall, high-end interior design, photorealistic, professional photography, warm lighting`;
+    const negativePrompt = 'ugly, blurry, low quality, distorted, cartoon, painting';
+
+    /* Stap 1: Start Replicate prediction */
+    const startResponse = await fetch('https://api.replicate.com/v1/models/stability-ai/stable-diffusion/predictions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${REPLICATE_TOKEN}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'wait'
+      },
+      body: JSON.stringify({
+        input: {
+          image: base64Image,
+          prompt: prompt,
+          negative_prompt: negativePrompt,
+          prompt_strength: 0.6,
+          num_inference_steps: 30,
+          guidance_scale: 7.5,
+          scheduler: 'DPMSolverMultistep'
+        }
+      })
+    });
+
+    if (!startResponse.ok) {
+      const err = await startResponse.text();
+      console.error('Replicate fout:', err);
+      return res.status(502).json({ error: 'AI-generatie mislukt. Probeer het opnieuw.' });
+    }
+
+    let prediction = await startResponse.json();
+    console.log('Prediction gestart:', prediction.id, 'status:', prediction.status);
+
+    /* Stap 2: Wacht op resultaat (polling) */
+    let attempts = 0;
+    while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < 60) {
+      await sleep(2000);
+      const pollResponse = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
+        headers: { 'Authorization': `Bearer ${REPLICATE_TOKEN}` }
+      });
+      prediction = await pollResponse.json();
+      console.log('Status:', prediction.status);
+      attempts++;
+    }
+
+    if (prediction.status !== 'succeeded' || !prediction.output) {
+      return res.status(502).json({ error: 'AI-generatie mislukt of time-out.' });
+    }
+
+    /* Stap 3: Download gegenereerde afbeelding */
+    const outputUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+    const imgResponse = await fetch(outputUrl);
+    const imageData = await imgResponse.arrayBuffer();
+    const resultBuffer = Buffer.from(imageData);
+
+    res.set('Content-Type', 'image/png');
     res.set('Content-Length', resultBuffer.length);
     res.send(resultBuffer);
 
@@ -82,53 +116,6 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
     res.status(500).json({ error: err.message || 'Onbekende fout.' });
   }
 });
-
-async function callHuggingFace(prompt, base64Image, retries = 3) {
-  const models = [
-    'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
-    'https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5',
-    'https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4'
-  ];
-
-  for (const modelUrl of models) {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const response = await fetch(modelUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${HF_TOKEN}`,
-            'Content-Type': 'application/json',
-            'X-Wait-For-Model': 'true'
-          },
-          body: JSON.stringify({
-            inputs: prompt,
-            parameters: {
-              num_inference_steps: 25,
-              guidance_scale: 7.5
-            }
-          }),
-          timeout: 120000
-        });
-
-        if (response.status === 503) {
-          if (i < retries - 1) {
-            await sleep(15000);
-            continue;
-          }
-        }
-
-        if (response.ok) return response;
-        break;
-
-      } catch (err) {
-        console.error(`Netwerkfout bij ${modelUrl}:`, err.message);
-        break;
-      }
-    }
-  }
-
-  throw new Error('Alle AI modellen zijn momenteel niet bereikbaar.');
-}
 
 function getColorDescription(productName) {
   const name = productName.toLowerCase();
@@ -146,5 +133,5 @@ function sleep(ms) {
 }
 
 app.listen(port, () => {
-  console.log(`Melora AI Backend draait op poort ${port}`);
+  console.log(`Melora AI Backend v2 draait op poort ${port}`);
 });
