@@ -56,14 +56,15 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
     const negativePrompt = 'ugly, blurry, low quality, distorted, cartoon, painting';
 
     /* Stap 1: Start Replicate prediction */
-    const startResponse = await fetch('https://api.replicate.com/v1/models/stability-ai/stable-diffusion/predictions', {
+    // Gebruik het stabiele versioned endpoint voor img2img
+    const startResponse = await fetch('https://api.replicate.com/v1/predictions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${REPLICATE_TOKEN}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'wait'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        version: 'c221b2b8ef527988fb59bf24a8b97c4561f1c671f73bd389f866bfbe27c5586',
         input: {
           image: base64Image,
           prompt: prompt,
