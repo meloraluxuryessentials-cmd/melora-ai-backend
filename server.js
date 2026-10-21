@@ -64,7 +64,8 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        version: 'c221b2b8ef527988fb59bf24a8b97c4561f1c671f73bd389f866bfbe27c5586',
+        // stability-ai/stable-diffusion-img2img — officieel Replicate model
+        version: 'ddd4eb440853a42c055203289a3da0c8886b0b9492fe619b1c1dbd34be160ce7',
         input: {
           image: base64Image,
           prompt: prompt,
@@ -79,8 +80,8 @@ app.post('/api/visualize', upload.single('room'), async (req, res) => {
 
     if (!startResponse.ok) {
       const err = await startResponse.text();
-      console.error('Replicate fout:', err);
-      return res.status(502).json({ error: 'AI-generatie mislukt. Probeer het opnieuw.' });
+      console.error('Replicate fout HTTP', startResponse.status, ':', err);
+      return res.status(502).json({ error: `AI-fout (${startResponse.status}): ${err.substring(0, 200)}` });
     }
 
     let prediction = await startResponse.json();
